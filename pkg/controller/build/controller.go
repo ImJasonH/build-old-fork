@@ -36,7 +36,6 @@ import (
 
 	"github.com/knative/build/pkg/builder"
 	"github.com/knative/build/pkg/builder/validation"
-	"github.com/knative/build/pkg/controller"
 
 	v1alpha1 "github.com/knative/build/pkg/apis/build/v1alpha1"
 
@@ -90,7 +89,7 @@ func NewController(
 	kubeclientset kubernetes.Interface,
 	buildclientset clientset.Interface,
 	kubeInformerFactory kubeinformers.SharedInformerFactory,
-	buildInformerFactory informers.SharedInformerFactory) controller.Interface {
+	buildInformerFactory informers.SharedInformerFactory) *Controller {
 
 	// obtain a reference to a shared index informer for the Build type.
 	buildInformer := buildInformerFactory.Build().V1alpha1().Builds()

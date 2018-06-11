@@ -37,7 +37,7 @@ import (
 	"github.com/knative/build/pkg/builder"
 	onclusterbuilder "github.com/knative/build/pkg/builder/cluster"
 	gcb "github.com/knative/build/pkg/builder/google"
-	"github.com/knative/build/pkg/controller"
+	_ "github.com/knative/build/pkg/controller"
 	"github.com/knative/build/pkg/controller/build"
 	"github.com/knative/build/pkg/controller/buildtemplate"
 
@@ -56,26 +56,10 @@ var (
 	builderName string
 )
 
-func newCloudBuilder() builder.Interface {
-	client := &http.Client{
-		Transport: &oauth2.Transport{
-			// If no account is specified, "default" is used.
-			Source: google.ComputeTokenSource(""),
-		},
-	}
-	cb, err := cloudbuild.New(client)
-	if err != nil {
-		glog.Fatalf("Unable to initialize cloudbuild client: %v", err)
-	}
-	project, err := metadata.ProjectID()
-	if err != nil {
-		glog.Fatalf("Unable to determine project-id, are you running on GCE? error: %v", err)
-	}
-	return gcb.NewBuilder(cb, project)
-}
-
-func newOnClusterBuilder(kubeclientset kubernetes.Interface, kubeinformers kubeinformers.SharedInformerFactory) builder.Interface {
-	return onclusterbuilder.NewBuilder(kubeclientset, kubeinformers)
+func init() {
+	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&builderName, "builder", "", "The builder implementation to use to execute builds (supports: cluster, google).")
 }
 
 func main() {
@@ -94,58 +78,58 @@ func main() {
 		glog.Fatalf("Error building kubernetes clientset: %s", err.Error())
 	}
 
-	exampleClient, err := clientset.NewForConfig(cfg)
+	buildClient, err := clientset.NewForConfig(cfg)
 	if err != nil {
-		glog.Fatalf("Error building example clientset: %s", err.Error())
+		glog.Fatalf("Error building Build clientset: %s", err.Error())
 	}
 
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
-	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
-
-	// Add new controllers here.
-	ctors := []controller.Constructor{
-		build.NewController,
-		buildtemplate.NewController,
-	}
+	buildInformerFactory := informers.NewSharedInformerFactory(buildClient, time.Second*30)
 
 	var bldr builder.Interface
 	switch builderName {
 	case "cluster":
-		bldr = newOnClusterBuilder(kubeClient, kubeInformerFactory)
+		bldr = onclusterbuilder.NewBuilder(kubeClient, kubeInformerFactory)
 	case "google":
 		bldr = newCloudBuilder()
 	default:
 		glog.Fatalf("Unrecognized builder: %v (supported: google, cluster)", builderName)
 	}
 
-	// Build all of our controllers, with the clients constructed above.
-	controllers := make([]controller.Interface, 0, len(ctors))
-	for _, ctor := range ctors {
-		controllers = append(controllers,
-			ctor(bldr, kubeClient, exampleClient, kubeInformerFactory, exampleInformerFactory))
-	}
-
 	go kubeInformerFactory.Start(stopCh)
-	go exampleInformerFactory.Start(stopCh)
+	go buildInformerFactory.Start(stopCh)
 
-	// Start all of the controllers.
-	for _, ctrlr := range controllers {
-		go func(ctrlr controller.Interface) {
-			// We don't expect this to return until stop is called,
-			// but if it does, propagate it back.
-			if err := ctrlr.Run(threadsPerController, stopCh); err != nil {
-				glog.Fatalf("Error running controller: %s", err.Error())
-			}
-		}(ctrlr)
-	}
+	// Start controllers for new CRD types here.
+	go func() {
+		if err := build.NewController(bldr, kubeClient, buildClient, kubeInformerFactory, buildInformerFactory).Run(threadsPerController, stopCh); err != nil {
+			glog.Fatalf("Error running Build controller: %v", err)
+		}
+	}()
+	go func() {
+		if err := buildtemplate.NewController(kubeClient, buildClient, kubeInformerFactory, buildInformerFactory).Run(threadsPerController, stopCh); err != nil {
+			glog.Fatalf("Error running BuildTemplate controller: %v", err)
+		}
+	}()
 
 	// TODO(mattmoor): Use a sync.WaitGroup instead?
 	<-stopCh
 	glog.Flush()
 }
 
-func init() {
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
-	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
-	flag.StringVar(&builderName, "builder", "", "The builder implementation to use to execute builds (supports: cluster, google).")
+func newCloudBuilder() builder.Interface {
+	client := &http.Client{
+		Transport: &oauth2.Transport{
+			// If no account is specified, "default" is used.
+			Source: google.ComputeTokenSource(""),
+		},
+	}
+	cb, err := cloudbuild.New(client)
+	if err != nil {
+		glog.Fatalf("Unable to initialize cloudbuild client: %v", err)
+	}
+	project, err := metadata.ProjectID()
+	if err != nil {
+		glog.Fatalf("Unable to determine project-id, are you running on GCE? error: %v", err)
+	}
+	return gcb.NewBuilder(cb, project)
 }

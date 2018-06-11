@@ -72,7 +72,7 @@ func (f *fixture) newController(b builder.Interface) (*Controller, informers.Sha
 	i := informers.NewSharedInformerFactory(f.client, noResyncPeriod)
 	k8sI := kubeinformers.NewSharedInformerFactory(f.kubeclient, noResyncPeriod)
 
-	c := NewController(b, f.kubeclient, f.client, k8sI, i).(*Controller)
+	c := NewController(b, f.kubeclient, f.client, k8sI, i)
 
 	c.buildsSynced = func() bool { return true }
 	c.recorder = &record.FakeRecorder{}
