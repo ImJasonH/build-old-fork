@@ -21,13 +21,13 @@
 [ -v KNATIVE_TEST_INFRA ] || exit 1
 
 # Set default GCS/GCR
-: ${BUILD_RELEASE_GCS:="knative-releases"}
+: ${BUILD_RELEASE_GCS:="knative-releases/build"}
 : ${BUILD_RELEASE_GCR:="gcr.io/knative-releases"}
 readonly BUILD_RELEASE_GCS
 readonly BUILD_RELEASE_GCR
 
 # Local generated yaml file
-readonly OUTPUT_YAML=release-build.yaml
+readonly OUTPUT_YAML=release.yaml
 
 # Script entry point
 
@@ -53,7 +53,7 @@ if (( PUBLISH_RELEASE )); then
 fi
 
 echo "Building build-crd"
-ko resolve ${KO_FLAGS} -P -f config/ > ${OUTPUT_YAML}
+ko resolve ${KO_FLAGS} -f config/ > ${OUTPUT_YAML}
 tag_images_in_yaml ${OUTPUT_YAML} ${BUILD_RELEASE_GCR} ${TAG}
 
 echo "New release built successfully"
